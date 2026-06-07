@@ -166,6 +166,7 @@ export interface QQMusicSong {
   albumname: string
   albummid: string
   interval?: number
+  canPlayFull?: boolean | null
 }
 
 /**

@@ -58,15 +58,25 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const songs: QQMusicSong[] = data.data.song.list.map((song: any) => ({
-      songid: String(song.songid || ""),
-      songmid: String(song.songmid || ""),
-      songname: song.songname || "未知歌曲",
-      singer: (song.singer || []).map((s: any) => s.name).join(" / "),
-      albumname: song.albumname || "",
-      albummid: song.albummid || "",
-      interval: song.interval || 0,
-    }))
+    const songs: QQMusicSong[] = data.data.song.list.map((song: any) => {
+      // 从 pay 字段判断VIP状态
+      const pay = song.pay
+      let canPlayFull: boolean | null = null
+      if (pay) {
+        const needsVip = pay.payplay === 1 || pay.paymonth === 1
+        canPlayFull = !needsVip
+      }
+      return {
+        songid: String(song.songid || ""),
+        songmid: String(song.songmid || ""),
+        songname: song.songname || "未知歌曲",
+        singer: (song.singer || []).map((s: any) => s.name).join(" / "),
+        albumname: song.albumname || "",
+        albummid: song.albummid || "",
+        interval: song.interval || 0,
+        canPlayFull,
+      }
+    })
 
     return NextResponse.json({
       success: true,

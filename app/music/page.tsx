@@ -75,16 +75,19 @@ function MusicContent() {
 
   // 播放处理
   const handlePlay = (track: Music) => {
-    const trackList = music.map((m) => ({
-      musicId: m.id,
-      title: m.title,
-      artist: m.artist,
-      coverUrl: m.coverUrl,
-      qqMusicMid: m.qqMusicMid,
-      duration: m.duration,
-    }))
-    const startIndex = trackList.findIndex((t) => t.musicId === track.id)
-    playQueue(trackList, startIndex >= 0 ? startIndex : 0)
+    // 仅将确认免费的歌曲加入播放队列
+    const playableTracks = music
+      .filter((m) => m.canPlayFull === true)
+      .map((m) => ({
+        musicId: m.id,
+        title: m.title,
+        artist: m.artist,
+        coverUrl: m.coverUrl,
+        qqMusicMid: m.qqMusicMid,
+        duration: m.duration,
+      }))
+    const startIndex = playableTracks.findIndex((t) => t.musicId === track.id)
+    playQueue(playableTracks, startIndex >= 0 ? startIndex : 0)
   }
 
   // 刷新歌单

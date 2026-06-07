@@ -86,6 +86,7 @@ export default function MusicImportPage() {
         qqMusicMid: song.songmid || null,
         playlistId: playlistData?.playlistId || null,
         duration: song.interval || null,
+        canPlayFull: song.canPlayFull ?? null,
       })
       if (data.success) {
         toast.success(`已导入: ${song.songname}`)
@@ -120,6 +121,7 @@ export default function MusicImportPage() {
           qqMusicMid: song.songmid || null,
           playlistId: playlistData.playlistId,
           duration: song.interval || null,
+          canPlayFull: song.canPlayFull ?? null,
         })
         count++
       } catch {
@@ -166,6 +168,7 @@ export default function MusicImportPage() {
         qqMusicId: song.songid,
         qqMusicMid: song.songmid || null,
         duration: song.interval || null,
+        canPlayFull: song.canPlayFull ?? null,
       })
       if (data.success) {
         toast.success(`已导入: ${song.songname}`)

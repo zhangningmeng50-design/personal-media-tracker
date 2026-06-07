@@ -70,8 +70,8 @@ export function MusicCard({
           </span>
         )}
 
-        {/* hover 播放按钮 */}
-        {onPlay && (
+        {/* hover 播放按钮 — 仅确认免费歌曲可播放 */}
+        {onPlay && music.canPlayFull === true && (
           <button
             onClick={(e) => {
               e.preventDefault()
@@ -85,7 +85,16 @@ export function MusicCard({
           </button>
         )}
 
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
+        {/* VIP 歌曲暗色遮罩提示 */}
+        {music.canPlayFull === false && (
+          <div className="absolute inset-0 bg-black/5 flex items-center justify-center z-10 pointer-events-none">
+            <span className="text-[10px] text-white/60 bg-black/50 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+              需QQ音乐会员
+            </span>
+          </div>
+        )}
+
+        <div className={`absolute inset-0 transition-colors pointer-events-none ${music.canPlayFull === true ? 'bg-black/0 group-hover:bg-black/20' : ''}`} />
       </div>
 
       <CardContent className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
