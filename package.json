@@ -5,7 +5,7 @@
   "description": "个人媒体记录应用 — 跟踪和管理书籍阅读与动画观看",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npx prisma db push && next build",
     "start": "next start",
     "lint": "next lint",
     "db:push": "npx prisma db push",
