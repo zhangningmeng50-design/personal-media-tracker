@@ -3,6 +3,89 @@
 import * as React from "react"
 import type { PlayerTrack } from "@/lib/types"
 
+// ============ JSONP 辅助：浏览器直连QQ音乐绕过CORS ============
+
+interface StreamResult {
+  url: string
+  type: "full" | "preview"
+}
+
+/**
+ * 通过 JSONP (动态 script 标签) 调用 QQ 音乐 vkey API
+ * 浏览器直连，绕过 Vercel 服务端 IP 封锁和 CORS 限制
+ */
+function fetchStreamUrlJsonp(songmid: string): Promise<StreamResult | null> {
+  return new Promise((resolve) => {
+    const callbackName =
+      "_qqmusic_cb_" + Date.now() + "_" + Math.random().toString(36).slice(2)
+    let settled = false
+
+    const timeoutId = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(null)
+    }, 12000)
+
+    const cleanup = () => {
+      clearTimeout(timeoutId)
+      delete (window as any)[callbackName]
+      const el = document.getElementById(callbackName)
+      if (el) el.remove()
+    }
+
+    ;(window as any)[callbackName] = (data: any) => {
+      if (settled) return
+      settled = true
+      cleanup()
+
+      try {
+        const info = data?.req_0?.data?.midurlinfo?.[0]
+        const sip = data?.req_0?.data?.sip
+        if (info && sip?.length) {
+          const baseUrl = sip[0].replace(/^http:\/\//, "https://")
+          if (info.purl) {
+            resolve({ url: baseUrl + info.purl, type: "full" })
+            return
+          } else if (info.opi30surl) {
+            resolve({ url: baseUrl + info.opi30surl, type: "preview" })
+            return
+          }
+        }
+        resolve(null)
+      } catch {
+        resolve(null)
+      }
+    }
+
+    const params = {
+      req_0: {
+        module: "vkey.GetVkeyServer",
+        method: "CgiGetVkey",
+        param: {
+          guid: "0",
+          songmid: [songmid],
+          songtype: [0],
+          uin: "0",
+          loginflag: 1,
+          platform: "20",
+        },
+      },
+    }
+    const dataParam = encodeURIComponent(JSON.stringify(params))
+    const script = document.createElement("script")
+    script.id = callbackName
+    script.src = `https://u.y.qq.com/cgi-bin/musicu.fcg?callback=${callbackName}&format=jsonp&data=${dataParam}`
+    script.onerror = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(null)
+    }
+    document.head.appendChild(script)
+  })
+}
+
 interface AudioPlayerState {
   currentTrack: PlayerTrack | null
   queue: PlayerTrack[]
@@ -115,23 +198,16 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
       let streamUrl: string | null = null
       let streamType: "full" | "preview" = "full"
 
-      // 策略1：通过 Edge Function 从边缘节点调用QQ音乐API（绕过地域封锁）
+      // 策略1：JSONP 直连 QQ 音乐（浏览器在中国，不受IP封锁影响，绕过CORS）
       if (track.qqMusicMid) {
-        try {
-          const res = await fetch(
-            `/api/qqmusic/stream-url?songmid=${encodeURIComponent(track.qqMusicMid)}`
-          )
-          const json = await res.json()
-          if (json.success && json.data?.url) {
-            streamUrl = json.data.url
-            streamType = json.data.type
-          }
-        } catch {
-          // Edge Function 失败，继续尝试其他方式
+        const result = await fetchStreamUrlJsonp(track.qqMusicMid)
+        if (result) {
+          streamUrl = result.url
+          streamType = result.type
         }
       }
 
-      // 策略2：Edge Function 失败时，使用服务端代理端点
+      // 策略2：JSONP 失败时，使用服务端代理端点
       if (!streamUrl) {
         streamUrl = `/api/music/play?id=${track.musicId}`
       }
@@ -139,9 +215,9 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
       audio.src = streamUrl
       audio.load()
 
-      // 播放音频
+      // 尝试自动播放
       audio.play().catch(() => {
-        // 浏览器可能阻止自动播放（用户需要手动点击播放）
+        // 浏览器可能阻止自动播放（用户需手动点击播放按钮）
       })
 
       setState((prev) => ({
@@ -150,7 +226,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
         streamType,
       }))
 
-      // 后台更新 canPlayFull 到数据库（非阻塞）
+      // 后台更新 canPlayFull 到数据库（非阻塞，fire-and-forget）
       if (track.qqMusicMid) {
         fetch(`/api/music/stream?id=${track.musicId}`).catch(() => {})
       }

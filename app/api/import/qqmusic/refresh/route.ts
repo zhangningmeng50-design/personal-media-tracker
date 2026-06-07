@@ -14,11 +14,14 @@ async function batchCheckVip(
   const result = new Map<string, boolean>()
   if (!songMids.length) return result
 
-  // 分批处理，每批最多50首
+  // 分批处理，每批最多50首，每批10秒超时
   const BATCH_SIZE = 50
   for (let i = 0; i < songMids.length; i += BATCH_SIZE) {
     const batch = songMids.slice(i, i + BATCH_SIZE)
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
       const response = await fetch(
         "https://u.y.qq.com/cgi-bin/musicu.fcg",
         {
@@ -42,8 +45,11 @@ async function batchCheckVip(
               },
             },
           }),
+          signal: controller.signal,
         }
       )
+
+      clearTimeout(timeoutId)
       const json = await response.json()
       const data = json?.req_0?.data
       if (data?.midurlinfo) {
@@ -59,7 +65,8 @@ async function batchCheckVip(
         }
       }
     } catch {
-      // 批次失败跳过，继续下一批
+      // 批次超时或失败跳过，继续下一批
+      // u.y.qq.com 可能在 Vercel 网络不可达，这是预期行为
     }
   }
   return result
@@ -82,15 +89,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 获取歌单最新数据
+    // 获取歌单最新数据（15秒超时）
     const apiUrl = `https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&disstid=${encodeURIComponent(playlistId)}`
 
-    const response = await fetch(apiUrl, {
-      headers: {
-        Referer: "https://y.qq.com/",
-        "User-Agent": USER_AGENT,
-      },
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+    let response: Response
+    try {
+      response = await fetch(apiUrl, {
+        headers: {
+          Referer: "https://y.qq.com/",
+          "User-Agent": USER_AGENT,
+        },
+        signal: controller.signal,
+      })
+    } catch (e: any) {
+      clearTimeout(timeoutId)
+      return NextResponse.json(
+        { success: false, error: e?.name === "AbortError" ? "QQ音乐接口超时，请稍后重试" : "QQ音乐接口不可达" },
+        { status: 502 }
+      )
+    }
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       return NextResponse.json(
