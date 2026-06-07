@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search")
     const tagId = searchParams.get("tag")
     const rating = searchParams.get("rating")
+    const availability = searchParams.get("availability")
     const sort = searchParams.get("sort") || "updatedAt"
     const page = parseInt(searchParams.get("page") || "1")
     const pageSize = parseInt(searchParams.get("pageSize") || "20")
@@ -20,6 +21,12 @@ export async function GET(request: NextRequest) {
 
     if (status) {
       where.status = status
+    }
+
+    if (availability === "free") {
+      where.canPlayFull = true
+    } else if (availability === "vip") {
+      where.canPlayFull = false
     }
 
     if (search) {

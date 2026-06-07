@@ -49,20 +49,22 @@ model Anime {
 }
 
 model Music {
-  id         Int       @id @default(autoincrement())
-  title      String
-  artist     String
-  album      String?
-  coverUrl   String?
-  qqMusicId  String?
-  playlistId String?
-  duration   Int?
-  status     String    @default("WANT_TO_LISTEN")
-  rating     Int?
-  notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  tags       MusicTag[]
+  id          Int       @id @default(autoincrement())
+  title       String
+  artist      String
+  album       String?
+  coverUrl    String?
+  qqMusicId   String?
+  qqMusicMid  String?
+  playlistId  String?
+  duration    Int?
+  canPlayFull Boolean?
+  status      String    @default("WANT_TO_LISTEN")
+  rating      Int?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  tags        MusicTag[]
 }
 
 model Tag {

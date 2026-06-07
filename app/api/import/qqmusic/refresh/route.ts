@@ -5,6 +5,67 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 /**
+ * 批量检测歌曲VIP状态
+ * 返回 Map<qqMusicMid, canPlayFull>
+ */
+async function batchCheckVip(
+  songMids: string[]
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>()
+  if (!songMids.length) return result
+
+  // 分批处理，每批最多50首
+  const BATCH_SIZE = 50
+  for (let i = 0; i < songMids.length; i += BATCH_SIZE) {
+    const batch = songMids.slice(i, i + BATCH_SIZE)
+    try {
+      const response = await fetch(
+        "https://u.y.qq.com/cgi-bin/musicu.fcg",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Referer: "https://y.qq.com/",
+            "User-Agent": USER_AGENT,
+          },
+          body: JSON.stringify({
+            req_0: {
+              module: "vkey.GetVkeyServer",
+              method: "CgiGetVkey",
+              param: {
+                guid: "0",
+                songmid: batch,
+                songtype: [0],
+                uin: "0",
+                loginflag: 1,
+                platform: "20",
+              },
+            },
+          }),
+        }
+      )
+      const json = await response.json()
+      const data = json?.req_0?.data
+      if (data?.midurlinfo) {
+        for (const info of data.midurlinfo) {
+          if (info.songmid) {
+            if (info.purl) {
+              result.set(info.songmid, true) // 免费完整播放
+            } else if (info.opi30surl) {
+              result.set(info.songmid, false) // VIP仅试听
+            }
+            // 两者都空不放入 map（保持 unknown/null）
+          }
+        }
+      }
+    } catch {
+      // 批次失败跳过，继续下一批
+    }
+  }
+  return result
+}
+
+/**
  * POST /api/import/qqmusic/refresh
  * body: { playlistId: string }
  * 刷新歌单：获取最新歌曲列表，自动导入数据库中不存在的歌曲
@@ -82,6 +143,26 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // 批量检测VIP状态（所有歌单歌曲，不仅是新歌）
+    const allSongMids = songs
+      .map((s: any) => String(s.songmid || ""))
+      .filter(Boolean)
+    const vipMap = await batchCheckVip(allSongMids)
+
+    // 批量更新已有歌曲的VIP状态
+    const vipEntries: [string, boolean][] = []
+    vipMap.forEach((canPlayFull, songmid) => {
+      vipEntries.push([songmid, canPlayFull])
+    })
+    for (let i = 0; i < vipEntries.length; i++) {
+      const songmid = vipEntries[i][0]
+      const canPlayFull = vipEntries[i][1]
+      await prisma.music.updateMany({
+        where: { qqMusicMid: songmid },
+        data: { canPlayFull },
+      })
+    }
+
     // 批量导入新歌曲
     const coverBase = "https://y.qq.com/music/photo_new/T002R300x300M000"
     let imported = 0
@@ -98,8 +179,10 @@ export async function POST(request: NextRequest) {
               ? `${coverBase}${song.albummid}.jpg`
               : null,
             qqMusicId: String(song.songid),
+            qqMusicMid: String(song.songmid || ""),
             playlistId,
             duration: song.interval || null,
+            canPlayFull: vipMap.get(String(song.songmid || "")) ?? undefined,
           },
         })
         imported++

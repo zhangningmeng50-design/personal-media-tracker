@@ -44,6 +44,15 @@ export const MUSIC_STATUS_OPTIONS = [
   { value: "DROPPED", label: "弃听", color: "status-dropped" },
 ] as const
 
+/**
+ * 可播放性筛选选项
+ */
+export const AVAILABILITY_OPTIONS = [
+  { value: "", label: "全部歌曲" },
+  { value: "free", label: "免费歌曲" },
+  { value: "vip", label: "VIP歌曲" },
+] as const
+
 export const ANIME_STATUS_OPTIONS = [
   { value: "WANT_TO_WATCH", label: "想看", color: "status-want" },
   { value: "WATCHING", label: "在看", color: "status-progress" },

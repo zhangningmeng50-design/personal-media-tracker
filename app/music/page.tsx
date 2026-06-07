@@ -9,12 +9,15 @@ import axios from "axios"
 import { MainLayout } from "@/components/layout/MainLayout"
 import { MusicGrid } from "@/components/music/MusicGrid"
 import { MusicFilters } from "@/components/music/MusicFilters"
+import { AudioPlayer } from "@/components/music/AudioPlayer"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog"
 import { Pagination } from "@/components/shared/Pagination"
 import { Button } from "@/components/ui/button"
 import { useMusic } from "@/hooks/useMusic"
 import { useTags } from "@/hooks/useTags"
-import type { Music, ImportedPlaylist, ApiResponse } from "@/lib/types"
+import { useAudioPlayer } from "@/contexts/AudioPlayerContext"
+import { AVAILABILITY_OPTIONS } from "@/lib/constants"
+import type { Music, ImportedPlaylist, ApiResponse, AvailabilityFilter } from "@/lib/types"
 
 export const dynamic = "force-dynamic"
 
@@ -33,6 +36,7 @@ function MusicContent() {
     deleteMusic,
   } = useMusic()
   const { tags, fetchTags } = useTags()
+  const { playQueue } = useAudioPlayer()
 
   const [deletingMusic, setDeletingMusic] = React.useState<Music | null>(null)
   const [playlists, setPlaylists] = React.useState<ImportedPlaylist[]>([])
@@ -44,15 +48,16 @@ function MusicContent() {
   const search = searchParams.get("search") || ""
   const tag = searchParams.get("tag") || ""
   const rating = searchParams.get("rating") || ""
+  const availability = (searchParams.get("availability") || "") as AvailabilityFilter
   const sort = searchParams.get("sort") || ""
 
   // 加载数据
   React.useEffect(() => {
     setPage(1)
-    fetchMusic({ status, search, tag, rating, sort }, 1)
+    fetchMusic({ status, search, tag, rating, availability, sort }, 1)
     fetchTags("music")
     fetchPlaylists()
-  }, [fetchMusic, fetchTags, status, search, tag, rating, sort])
+  }, [fetchMusic, fetchTags, status, search, tag, rating, availability, sort])
 
   // 获取已导入歌单列表
   const fetchPlaylists = async () => {
@@ -68,6 +73,20 @@ function MusicContent() {
     }
   }
 
+  // 播放处理
+  const handlePlay = (track: Music) => {
+    const trackList = music.map((m) => ({
+      musicId: m.id,
+      title: m.title,
+      artist: m.artist,
+      coverUrl: m.coverUrl,
+      qqMusicMid: m.qqMusicMid,
+      duration: m.duration,
+    }))
+    const startIndex = trackList.findIndex((t) => t.musicId === track.id)
+    playQueue(trackList, startIndex >= 0 ? startIndex : 0)
+  }
+
   // 刷新歌单
   const handleRefresh = async (playlistId: string) => {
     setRefreshing(playlistId)
@@ -78,7 +97,7 @@ function MusicContent() {
       )
       if (data.success && data.data) {
         toast.success(data.data.message)
-        fetchMusic({ status, search, tag, rating, sort })
+        fetchMusic({ status, search, tag, rating, availability, sort })
         fetchPlaylists()
       } else {
         toast.error(data.error || "刷新失败")
@@ -99,7 +118,7 @@ function MusicContent() {
       )
       if (data.success && data.data) {
         toast.success(`已删除 ${data.data.deleted} 首歌曲`)
-        fetchMusic({ status, search, tag, rating, sort })
+        fetchMusic({ status, search, tag, rating, availability, sort })
         fetchPlaylists()
       } else {
         toast.error(data.error || "删除失败")
@@ -116,6 +135,10 @@ function MusicContent() {
     } else {
       params.delete(key)
     }
+    // 切换筛选时重置分页
+    if (key !== "page") {
+      params.delete("page")
+    }
     router.push(`/music?${params.toString()}`)
   }
 
@@ -127,7 +150,7 @@ function MusicContent() {
   const handleStatusChange = async (item: Music, newStatus: string) => {
     const result = await updateMusic(item.id, { status: newStatus as any })
     if (result) {
-      fetchMusic({ status, search, tag, rating, sort })
+      fetchMusic({ status, search, tag, rating, availability, sort })
     }
   }
 
@@ -136,7 +159,7 @@ function MusicContent() {
     const success = await deleteMusic(deletingMusic.id)
     if (success) {
       toast.success("音乐已删除")
-      fetchMusic({ status, search, tag, rating, sort })
+      fetchMusic({ status, search, tag, rating, availability, sort })
       fetchPlaylists()
     } else {
       toast.error("删除失败")
@@ -221,10 +244,28 @@ function MusicContent() {
           onClear={clearFilters}
         />
 
+        {/* 可播放性筛选标签 */}
+        <div className="flex items-center gap-1.5">
+          {AVAILABILITY_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => updateParam("availability", opt.value)}
+              className={`px-3 py-1 rounded-full text-xs sm:text-sm transition-colors ${
+                availability === opt.value
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         {/* 音乐网格 */}
         <MusicGrid
           music={music}
           onDelete={(m) => setDeletingMusic(m)}
+          onPlay={handlePlay}
           loading={loading}
         />
 
@@ -258,6 +299,9 @@ function MusicContent() {
           variant="destructive"
           onConfirm={handleDeletePlaylist}
         />
+
+        {/* 底部播放器 */}
+        <AudioPlayer />
       </div>
     </MainLayout>
   )

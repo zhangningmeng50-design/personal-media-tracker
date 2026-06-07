@@ -10,6 +10,7 @@ interface MusicGridProps {
   music: MusicType[]
   onEdit?: (music: MusicType) => void
   onDelete?: (music: MusicType) => void
+  onPlay?: (music: MusicType) => void
   loading?: boolean
 }
 
@@ -21,6 +22,7 @@ export function MusicGrid({
   music,
   onEdit,
   onDelete,
+  onPlay,
   loading = false,
 }: MusicGridProps) {
   if (loading) {
@@ -58,6 +60,7 @@ export function MusicGrid({
           music={m}
           onEdit={onEdit}
           onDelete={onDelete}
+          onPlay={onPlay}
           priority={index < 4}
         />
       ))}

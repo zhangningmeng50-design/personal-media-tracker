@@ -83,6 +83,7 @@ export default function MusicImportPage() {
           ? `https://y.qq.com/music/photo_new/T002R300x300M000${song.albummid}.jpg`
           : null,
         qqMusicId: song.songid,
+        qqMusicMid: song.songmid || null,
         playlistId: playlistData?.playlistId || null,
         duration: song.interval || null,
       })
@@ -116,6 +117,7 @@ export default function MusicImportPage() {
             ? `https://y.qq.com/music/photo_new/T002R300x300M000${song.albummid}.jpg`
             : null,
           qqMusicId: song.songid,
+          qqMusicMid: song.songmid || null,
           playlistId: playlistData.playlistId,
           duration: song.interval || null,
         })
@@ -162,6 +164,7 @@ export default function MusicImportPage() {
           ? `https://y.qq.com/music/photo_new/T002R300x300M000${song.albummid}.jpg`
           : null,
         qqMusicId: song.songid,
+        qqMusicMid: song.songmid || null,
         duration: song.interval || null,
       })
       if (data.success) {

@@ -74,8 +74,10 @@ export interface Music {
   album?: string | null
   coverUrl?: string | null
   qqMusicId?: string | null
+  qqMusicMid?: string | null
   playlistId?: string | null
   duration?: number | null
+  canPlayFull?: boolean | null
   status: MusicStatus
   rating?: number | null
   notes?: string | null
@@ -143,8 +145,10 @@ export interface MusicInput {
   album?: string
   coverUrl?: string
   qqMusicId?: string
+  qqMusicMid?: string
   playlistId?: string
   duration?: number
+  canPlayFull?: boolean | null
   status?: MusicStatus
   rating?: number
   notes?: string
@@ -156,6 +160,7 @@ export interface MusicInput {
  */
 export interface QQMusicSong {
   songid: string
+  songmid: string
   songname: string
   singer: string
   albumname: string
@@ -277,6 +282,7 @@ export interface FilterParams {
   sort?: string
   year?: string
   page?: string
+  availability?: string
 }
 
 /**
@@ -290,3 +296,28 @@ export interface ApiResponse<T> {
   page?: number
   pageSize?: number
 }
+
+/**
+ * 播放器 — 播放队列中的单首歌曲
+ */
+export interface PlayerTrack {
+  musicId: number
+  title: string
+  artist: string
+  coverUrl?: string | null
+  qqMusicMid?: string | null
+  duration?: number | null
+}
+
+/**
+ * 播放器 — 流媒体URL及类型
+ */
+export interface StreamData {
+  url: string
+  type: "full" | "preview"
+}
+
+/**
+ * 可播放性筛选
+ */
+export type AvailabilityFilter = "" | "free" | "vip"

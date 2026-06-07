@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
     const playlistName = cd.dissname || "未知歌单"
     const songs: QQMusicSong[] = (cd.songlist || []).map((song: any) => ({
       songid: String(song.songid || ""),
+      songmid: String(song.songmid || ""),
       songname: song.songname || "未知歌曲",
       singer: (song.singer || []).map((s: any) => s.name).join(" / "),
       albumname: song.albumname || "",

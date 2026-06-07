@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
 
     const songs: QQMusicSong[] = data.data.song.list.map((song: any) => ({
       songid: String(song.songid || ""),
+      songmid: String(song.songmid || ""),
       songname: song.songname || "未知歌曲",
       singer: (song.singer || []).map((s: any) => s.name).join(" / "),
       albumname: song.albumname || "",
