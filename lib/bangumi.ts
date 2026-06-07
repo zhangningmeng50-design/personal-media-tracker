@@ -193,20 +193,20 @@ export async function getBangumiCollections(
       offset += LIMIT
     }
 
-    // 映射到返回格式
-    return allItems.map((item: any) => ({
-      subject_id: item.subject_id,
-      subject: item.subject
-        ? {
-            id: item.subject.id,
-            name: item.subject.name || "",
-            name_cn: item.subject.name_cn || "",
-            images: item.subject.images || {},
-            eps: item.subject.eps || item.subject.eps_count || 0,
-            air_date: "",
-          }
-        : null,
-      rate: item.rate || 0,
+    // 映射到返回格式（过滤掉无 subject 的数据）
+    return allItems
+      .filter((item: any) => item.subject)
+      .map((item: any) => ({
+        subject_id: item.subject_id,
+        subject: {
+          id: item.subject.id,
+          name: item.subject.name || "",
+          name_cn: item.subject.name_cn || "",
+          images: item.subject.images || {},
+          eps: item.subject.eps || item.subject.eps_count || 0,
+          air_date: "",
+        },
+        rate: item.rate || 0,
       type: item.type || 1,
       comment: item.comment || "",
     }))
