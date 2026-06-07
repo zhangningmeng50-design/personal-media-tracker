@@ -62,6 +62,9 @@ export const STATUS_COLOR_MAP: Record<string, string> = {
   WANT_TO_WATCH: "status-want",
   WATCHING: "status-progress",
   WATCHED: "status-done",
+  WANT_TO_LISTEN: "status-want",
+  LISTENING: "status-progress",
+  LISTENED: "status-done",
 }
 
 /**

@@ -12,7 +12,7 @@ export function useTags() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchTags = useCallback(async (type?: "book" | "anime") => {
+  const fetchTags = useCallback(async (type?: "book" | "anime" | "music") => {
     setLoading(true)
     setError(null)
     try {
