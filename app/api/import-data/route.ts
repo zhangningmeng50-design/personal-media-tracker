@@ -114,12 +114,47 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let musicCount = 0
+
+    // 导入音乐
+    if (body.musics && Array.isArray(body.musics)) {
+      for (const item of body.musics) {
+        try {
+          const tagIds = (item.tags || [])
+            .map((t: any) => tagNameMap.get(t.name || t))
+            .filter(Boolean)
+
+          await prisma.music.create({
+            data: {
+              title: item.title,
+              artist: item.artist || "未知歌手",
+              album: item.album,
+              coverUrl: item.coverUrl,
+              qqMusicId: item.qqMusicId,
+              playlistId: item.playlistId,
+              duration: item.duration,
+              status: item.status || "WANT_TO_LISTEN",
+              rating: item.rating,
+              notes: item.notes,
+              tags: tagIds.length
+                ? { create: tagIds.map((id: number) => ({ tag: { connect: { id } } })) }
+                : undefined,
+            },
+          })
+          musicCount++
+        } catch {
+          // skip errors
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
+        tagsImported: tagCount,
         booksImported: bookCount,
         animeImported: animeCount,
-        tagsImported: tagCount,
+        musicImported: musicCount,
       },
     })
   } catch (error) {
