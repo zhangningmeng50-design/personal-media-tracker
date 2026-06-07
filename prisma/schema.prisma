@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Book {
+  id          Int       @id @default(autoincrement())
+  title       String
+  author      String
+  publisher   String?
+  publishYear Int?
+  isbn        String?
+  coverUrl    String?
+  description String?
+  status      String    @default("WANT_TO_READ")
+  rating      Int?
+  notes       String?
+  startDate   DateTime?
+  finishDate  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  tags        BookTag[]
+}
+
+model Anime {
+  id              Int       @id @default(autoincrement())
+  titleCn         String
+  titleJp         String?
+  coverUrl        String?
+  summary         String?
+  studio          String?
+  airDate         DateTime?
+  totalEpisodes   Int?
+  watchedEpisodes Int       @default(0)
+  bangumiId       Int?
+  status          String    @default("WANT_TO_WATCH")
+  rating          Int?
+  notes           String?
+  startDate       DateTime?
+  finishDate      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  tags            AnimeTag[]
+}
+
+model Music {
+  id         Int       @id @default(autoincrement())
+  title      String
+  artist     String
+  album      String?
+  coverUrl   String?
+  qqMusicId  String?
+  playlistId String?
+  duration   Int?
+  status     String    @default("WANT_TO_LISTEN")
+  rating     Int?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  tags       MusicTag[]
+}
+
+model Tag {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  color     String     @default("#165DFF")
+  createdAt DateTime   @default(now())
+  books     BookTag[]
+  animes    AnimeTag[]
+  musics    MusicTag[]
+
+  @@index([name])
+}
+
+model MusicTag {
+  musicId Int
+  tagId   Int
+  music   Music @relation(fields: [musicId], references: [id], onDelete: Cascade)
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([musicId, tagId])
+  @@index([tagId])
+}
+
+model BookTag {
+  bookId Int
+  tagId  Int
+  book   Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([bookId, tagId])
+  @@index([tagId])
+}
+
+model AnimeTag {
+  animeId Int
+  tagId   Int
+  anime   Anime @relation(fields: [animeId], references: [id], onDelete: Cascade)
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([animeId, tagId])
+  @@index([tagId])
+}
