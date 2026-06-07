@@ -226,10 +226,15 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
         streamType,
       }))
 
-      // 后台更新 canPlayFull 到数据库（非阻塞，fire-and-forget）
-      if (track.qqMusicMid) {
-        fetch(`/api/music/stream?id=${track.musicId}`).catch(() => {})
-      }
+      // 将检测到的VIP状态写入数据库（非阻塞）
+      fetch(`/api/music/update-availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          musicId: track.musicId,
+          canPlayFull: streamType === "full",
+        }),
+      }).catch(() => {})
     }
 
     loadStream()

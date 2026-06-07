@@ -5,74 +5,6 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 /**
- * 批量检测歌曲VIP状态
- * 返回 Map<qqMusicMid, canPlayFull>
- */
-async function batchCheckVip(
-  songMids: string[]
-): Promise<Map<string, boolean>> {
-  const result = new Map<string, boolean>()
-  if (!songMids.length) return result
-
-  // 分批处理，每批最多50首，每批10秒超时
-  const BATCH_SIZE = 50
-  for (let i = 0; i < songMids.length; i += BATCH_SIZE) {
-    const batch = songMids.slice(i, i + BATCH_SIZE)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
-
-      const response = await fetch(
-        "https://u.y.qq.com/cgi-bin/musicu.fcg",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Referer: "https://y.qq.com/",
-            "User-Agent": USER_AGENT,
-          },
-          body: JSON.stringify({
-            req_0: {
-              module: "vkey.GetVkeyServer",
-              method: "CgiGetVkey",
-              param: {
-                guid: "0",
-                songmid: batch,
-                songtype: [0],
-                uin: "0",
-                loginflag: 1,
-                platform: "20",
-              },
-            },
-          }),
-          signal: controller.signal,
-        }
-      )
-
-      clearTimeout(timeoutId)
-      const json = await response.json()
-      const data = json?.req_0?.data
-      if (data?.midurlinfo) {
-        for (const info of data.midurlinfo) {
-          if (info.songmid) {
-            if (info.purl) {
-              result.set(info.songmid, true) // 免费完整播放
-            } else if (info.opi30surl) {
-              result.set(info.songmid, false) // VIP仅试听
-            }
-            // 两者都空不放入 map（保持 unknown/null）
-          }
-        }
-      }
-    } catch {
-      // 批次超时或失败跳过，继续下一批
-      // u.y.qq.com 可能在 Vercel 网络不可达，这是预期行为
-    }
-  }
-  return result
-}
-
-/**
  * POST /api/import/qqmusic/refresh
  * body: { playlistId: string }
  * 刷新歌单：获取最新歌曲列表，自动导入数据库中不存在的歌曲
@@ -177,27 +109,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 批量检测VIP状态（所有歌单歌曲）
-    const allSongMids = songs
-      .map((s: any) => String(s.songmid || ""))
-      .filter(Boolean)
-    const vipMap = await batchCheckVip(allSongMids)
-
-    // 批量更新所有歌曲的VIP状态
-    const vipEntries: [string, boolean][] = []
-    vipMap.forEach((canPlayFull, songmid) => {
-      vipEntries.push([songmid, canPlayFull])
-    })
-    for (let i = 0; i < vipEntries.length; i++) {
-      const songmid = vipEntries[i][0]
-      const canPlayFull = vipEntries[i][1]
-      await prisma.music.updateMany({
-        where: { qqMusicMid: songmid },
-        data: { canPlayFull },
-      })
-    }
-
-    // 过滤出新歌曲
+    // 过滤出新歌曲（VIP检测改为浏览器端JSONP，避免服务端IP封锁导致卡慢）
     const newSongs = songs.filter(
       (s: any) => !existingIds.has(String(s.songid))
     )
@@ -205,11 +117,11 @@ export async function POST(request: NextRequest) {
     if (newSongs.length === 0) {
       return NextResponse.json({
         success: true,
-        data: { imported: 0, message: "歌单没有新歌曲，已同步VIP状态" },
+        data: { imported: 0, message: "歌单没有新歌曲" },
       })
     }
 
-    // 批量导入新歌曲
+    // 批量导入新歌曲（canPlayFull 后续通过 VIP检测按钮 填充）
     const coverBase = "https://y.qq.com/music/photo_new/T002R300x300M000"
     let imported = 0
     for (const song of newSongs) {
@@ -228,7 +140,6 @@ export async function POST(request: NextRequest) {
             qqMusicMid: String(song.songmid || ""),
             playlistId,
             duration: song.interval || null,
-            canPlayFull: vipMap.get(String(song.songmid || "")) ?? undefined,
           },
         })
         imported++
