@@ -9,6 +9,7 @@ const USER_AGENT =
  * GET /api/music/stream?id={musicId}
  * 获取歌曲的流媒体播放URL
  * 自动降级：完整播放 → 30秒试听 → 不可用
+ * 同时顺便更新 canPlayFull 状态到数据库
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     // 查找歌曲的 songmid
     const music = await prisma.music.findUnique({
       where: { id: parseInt(id) },
-      select: { qqMusicMid: true, title: true, artist: true },
+      select: { qqMusicMid: true, title: true, artist: true, canPlayFull: true },
     })
 
     if (!music) {
@@ -84,8 +85,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const baseUrl = sip[0]
+    // 强制使用 HTTPS CDN，避免浏览器混合内容拦截
+    const baseUrl = sip[0].replace(/^http:\/\//, "https://")
     let streamData: StreamData | null = null
+    let canPlayFull: boolean | null = null
 
     // 优先完整播放
     if (info.purl) {
@@ -93,6 +96,7 @@ export async function GET(request: NextRequest) {
         url: baseUrl + info.purl,
         type: "full",
       }
+      canPlayFull = true
     }
     // 降级为30秒试听
     else if (info.opi30surl) {
@@ -100,6 +104,7 @@ export async function GET(request: NextRequest) {
         url: baseUrl + info.opi30surl,
         type: "preview",
       }
+      canPlayFull = false
     }
 
     if (!streamData) {
@@ -107,6 +112,18 @@ export async function GET(request: NextRequest) {
         { success: false, error: "暂无可用音源" },
         { status: 404 }
       )
+    }
+
+    // 顺便更新 canPlayFull（如果尚未确定）
+    if (canPlayFull !== null && music.canPlayFull === null) {
+      prisma.music
+        .update({
+          where: { id: parseInt(id) },
+          data: { canPlayFull },
+        })
+        .catch(() => {
+          // 静默失败，不影响播放
+        })
     }
 
     return NextResponse.json({

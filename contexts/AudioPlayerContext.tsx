@@ -111,13 +111,18 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
     const loadStream = async () => {
       setState((prev) => ({ ...prev, isLoading: true, error: null, streamType: null }))
       try {
-        const { data } = await axios.get<ApiResponse<StreamData>>(
+        // 先获取流类型信息（用于展示"试听"标签）
+        const streamPromise = axios.get<ApiResponse<StreamData>>(
           `/api/music/stream?id=${state.currentTrack!.musicId}`
         )
+
+        // 同时设置音频源为代理端点（确保HTTPS，无混内容问题）
+        const audio = audioRef.current!
+        audio.src = `/api/music/play?id=${state.currentTrack!.musicId}`
+        audio.load()
+
+        const { data } = await streamPromise
         if (data.success && data.data) {
-          const audio = audioRef.current!
-          audio.src = data.data.url
-          audio.load()
           audio.play().catch(() => {
             // 浏览器可能阻止自动播放
           })
@@ -127,10 +132,12 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
             streamType: data.data!.type,
           }))
         } else {
+          // 流信息获取失败，但代理端点可能仍然可用
+          audio.play().catch(() => {})
           setState((prev) => ({
             ...prev,
             isLoading: false,
-            error: data.error || "暂无可用音源",
+            error: data.error || null,
           }))
         }
       } catch {
