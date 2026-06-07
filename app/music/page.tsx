@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Download, RefreshCw, Loader2 } from "lucide-react"
+import { Download, RefreshCw, Loader2, Trash2 } from "lucide-react"
 import toast from "react-hot-toast"
 import axios from "axios"
 import { MainLayout } from "@/components/layout/MainLayout"
@@ -37,6 +37,7 @@ function MusicContent() {
   const [deletingMusic, setDeletingMusic] = React.useState<Music | null>(null)
   const [playlists, setPlaylists] = React.useState<ImportedPlaylist[]>([])
   const [refreshing, setRefreshing] = React.useState<string | null>(null)
+  const [deletingPlaylist, setDeletingPlaylist] = React.useState<string | null>(null)
 
   // 筛选状态
   const status = searchParams.get("status") || ""
@@ -86,6 +87,25 @@ function MusicContent() {
       toast.error("刷新失败，请检查网络")
     } finally {
       setRefreshing(null)
+    }
+  }
+
+  // 删除歌单
+  const handleDeletePlaylist = async () => {
+    if (!deletingPlaylist) return
+    try {
+      const { data } = await axios.delete<ApiResponse<{ deleted: number }>>(
+        `/api/music/playlists?playlistId=${deletingPlaylist}`
+      )
+      if (data.success && data.data) {
+        toast.success(`已删除 ${data.data.deleted} 首歌曲`)
+        fetchMusic({ status, search, tag, rating, sort })
+        fetchPlaylists()
+      } else {
+        toast.error(data.error || "删除失败")
+      }
+    } catch {
+      toast.error("删除失败，请检查网络")
     }
   }
 
@@ -173,6 +193,15 @@ function MusicContent() {
                     <RefreshCw className="h-3.5 w-3.5" />
                   )}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 text-red-500 hover:text-red-600"
+                  onClick={() => setDeletingPlaylist(pl.playlistId)}
+                  title="删除歌单"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </div>
             ))}
           </div>
@@ -208,7 +237,7 @@ function MusicContent() {
           }
         />
 
-        {/* 删除确认 */}
+        {/* 删除音乐确认 */}
         <ConfirmDialog
           open={!!deletingMusic}
           onOpenChange={() => setDeletingMusic(null)}
@@ -217,6 +246,17 @@ function MusicContent() {
           confirmText="删除"
           variant="destructive"
           onConfirm={handleDelete}
+        />
+
+        {/* 删除歌单确认 */}
+        <ConfirmDialog
+          open={!!deletingPlaylist}
+          onOpenChange={() => setDeletingPlaylist(null)}
+          title="删除歌单"
+          description={`确定要删除歌单「${deletingPlaylist}」中的所有歌曲吗？此操作不可撤销。`}
+          confirmText="全部删除"
+          variant="destructive"
+          onConfirm={handleDeletePlaylist}
         />
       </div>
     </MainLayout>
