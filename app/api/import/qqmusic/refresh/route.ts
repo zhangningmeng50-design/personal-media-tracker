@@ -8,7 +8,8 @@ const USER_AGENT =
  * POST /api/import/qqmusic/refresh
  * body: { playlistId: string }
  * 刷新歌单：获取最新歌曲列表，自动导入数据库中不存在的歌曲
- * pay/VIP 检测由浏览器端完成（Vercel IP 拿不到完整 pay 数据）
+ * 注意：Vercel IP 无法从 c.y.qq.com 获取 pay 字段（地区限制），
+ * VIP/免费检测由浏览器端通过 u.y.qq.com JSONP 完成（见 app/music/page.tsx handleCheckVip）
  */
 export async function POST(request: NextRequest) {
   try {
@@ -171,10 +172,10 @@ export async function POST(request: NextRequest) {
         payVipCount,
         payFreeCount,
         message: imported > 0
-          ? `成功导入 ${imported} 首新歌` + (payAvailable ? `，${payFreeCount}首免费 ${payVipCount}首VIP` : "")
+          ? `成功导入 ${imported} 首新歌` + (payAvailable ? `，${payFreeCount}首免费 ${payVipCount}首VIP` : "，正在检测VIP状态...")
           : payAvailable
             ? `歌单已是最新，${payFreeCount}首免费 ${payVipCount}首VIP`
-            : "歌单已是最新",
+            : "歌单已是最新，正在检测VIP状态...",
       },
     })
   } catch (error) {
