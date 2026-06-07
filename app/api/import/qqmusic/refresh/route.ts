@@ -74,11 +74,10 @@ export async function POST(request: NextRequest) {
     const cd = data.cdlist[0]
     const songs = cd.songlist || []
 
-    // 构建 songid → songmid 映射
-    const songidToMid = new Map<string, string>()
+    // 构建 songid → { songmid, canPlayFull } 映射
+    // pay 字段来自歌单API（c.y.qq.com），Vercel hkg1 大概率能拿到
+    const songidToInfo = new Map<string, { songmid: string; canPlayFull: boolean | null }>()
     const songIds: string[] = []
-
-    // 统计 pay 字段（诊断用，Vercel IP 可能拿不到）
     let payAvailable = false
     let payVipCount = 0
 
@@ -88,13 +87,18 @@ export async function POST(request: NextRequest) {
       if (!sid || !smid) continue
 
       songIds.push(sid)
-      songidToMid.set(sid, smid)
 
-      // 检测 pay 字段是否可用
-      if (song.pay && (song.pay.payplay === 1 || song.pay.payplay === 0)) {
+      // 从 pay 字段判断VIP/免费
+      const pay = song.pay
+      let canPlayFull: boolean | null = null
+      if (pay && typeof pay.payplay === "number") {
         payAvailable = true
-        if (song.pay.payplay === 1) payVipCount++
+        const isVip = pay.payplay === 1 || pay.paymonth === 1
+        canPlayFull = !isVip
+        if (isVip) payVipCount++
       }
+
+      songidToInfo.set(sid, { songmid: smid, canPlayFull })
     }
 
     // 查询数据库中已存在的歌曲
@@ -104,25 +108,30 @@ export async function POST(request: NextRequest) {
     })
     const existingIds = new Set(existing.map((m) => m.qqMusicId))
 
-    // ====== 分批并行补填已有歌曲的 qqMusicMid ======
-    const entries = Array.from(songidToMid.entries())
+    // ====== 分批并行补填已有歌曲的 qqMusicMid + canPlayFull ======
+    const entries = Array.from(songidToInfo.entries())
     const CHUNK = 20
 
     let updatedCount = 0
     for (let i = 0; i < entries.length; i += CHUNK) {
       const chunk = entries.slice(i, i + CHUNK)
       const results = await Promise.all(
-        chunk.map(([songid, songmid]) =>
-          prisma.music.updateMany({
-            where: { qqMusicId: songid, qqMusicMid: null },
-            data: { qqMusicMid: songmid },
+        chunk.map(([songid, info]) => {
+          const updateData: Record<string, unknown> = { qqMusicMid: info.songmid }
+          // 有 pay 数据时同步更新 canPlayFull（覆盖旧的错误数据）
+          if (info.canPlayFull !== null) {
+            updateData.canPlayFull = info.canPlayFull
+          }
+          return prisma.music.updateMany({
+            where: { qqMusicId: songid },
+            data: updateData,
           })
-        )
+        })
       )
       updatedCount += results.reduce((sum, r) => sum + r.count, 0)
     }
 
-    // ====== 批量导入新歌曲 ======
+    // ====== 批量导入新歌曲（含 canPlayFull） ======
     const newSongs = songs.filter(
       (s: any) => !existingIds.has(String(s.songid))
     )
@@ -131,20 +140,26 @@ export async function POST(request: NextRequest) {
     if (newSongs.length > 0) {
       const coverBase = "https://y.qq.com/music/photo_new/T002R300x300M000"
 
-      const createData = newSongs.map((song: any) => ({
-        title: song.songname || "未知歌曲",
-        artist: (song.singer || []).map((s: any) => s.name).join(" / "),
-        album: song.albumname || null,
-        coverUrl: song.albummid ? `${coverBase}${song.albummid}.jpg` : null,
-        qqMusicId: String(song.songid),
-        qqMusicMid: String(song.songmid || ""),
-        playlistId,
-        duration: song.interval || null,
-      }))
+      const createData = newSongs.map((song: any) => {
+        const info = songidToInfo.get(String(song.songid))
+        return {
+          title: song.songname || "未知歌曲",
+          artist: (song.singer || []).map((s: any) => s.name).join(" / "),
+          album: song.albumname || null,
+          coverUrl: song.albummid ? `${coverBase}${song.albummid}.jpg` : null,
+          qqMusicId: String(song.songid),
+          qqMusicMid: info?.songmid || String(song.songmid || ""),
+          playlistId,
+          duration: song.interval || null,
+          canPlayFull: info?.canPlayFull ?? null,
+        }
+      })
 
       const result = await prisma.music.createMany({ data: createData })
       imported = result.count
     }
+
+    const payFreeCount = payAvailable ? songs.length - payVipCount : 0
 
     return NextResponse.json({
       success: true,
@@ -152,13 +167,14 @@ export async function POST(request: NextRequest) {
         imported,
         updated: updatedCount,
         totalSongs: songs.length,
-        // 诊断信息：服务端是否拿到了 pay 数据
         payAvailable,
         payVipCount,
-        payFreeCount: payAvailable ? songs.length - payVipCount : 0,
+        payFreeCount,
         message: imported > 0
-          ? `成功导入 ${imported} 首新歌`
-          : "歌单没有新歌曲",
+          ? `成功导入 ${imported} 首新歌` + (payAvailable ? `，${payFreeCount}首免费 ${payVipCount}首VIP` : "")
+          : payAvailable
+            ? `歌单已是最新，${payFreeCount}首免费 ${payVipCount}首VIP`
+            : "歌单已是最新",
       },
     })
   } catch (error) {
