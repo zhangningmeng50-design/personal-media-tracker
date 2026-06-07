@@ -1,12 +1,14 @@
 /**
  * 导出本地 SQLite 数据为 JSON
- * 用法: npx tsx scripts/export-sqlite.ts > export.json
+ * 用法: npx tsx scripts/export-sqlite.ts > export-data.json
  */
 
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient } from "../prisma/sqlite-client"
+
+const DB_PATH = "file:C:/Users/86186/personal-media-tracker/prisma/prisma/media-tracker.db"
 
 const sqlite = new PrismaClient({
-  datasources: { db: { url: "file:./prisma/prisma/media-tracker.db" } },
+  datasources: { db: { url: DB_PATH } },
 })
 
 async function exportData() {
@@ -26,7 +28,7 @@ async function exportData() {
     tags: b.tags.map((bt) => bt.tag),
   }))
 
-  // 导出动��（含标签）
+  // 导出动画（含标签）
   const animes = await sqlite.anime.findMany({
     include: { tags: { include: { tag: true } } },
   })
@@ -62,5 +64,8 @@ async function exportData() {
 }
 
 exportData()
-  .catch(console.error)
+  .catch((e) => {
+    console.error(e.message)
+    process.exit(1)
+  })
   .finally(() => sqlite.$disconnect())
