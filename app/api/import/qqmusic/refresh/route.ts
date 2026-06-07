@@ -131,25 +131,38 @@ export async function POST(request: NextRequest) {
     })
     const existingIds = new Set(existing.map((m) => m.qqMusicId))
 
-    // 过滤出新歌曲
-    const newSongs = songs.filter(
-      (s: any) => !existingIds.has(String(s.songid))
-    )
+    // 构建 songid → songmid 映射（用于补填已有歌曲的 qqMusicMid）
+    const songidToMid = new Map<string, string>()
+    for (let si = 0; si < songs.length; si++) {
+      const song = songs[si]
+      const sid = String(song.songid || "")
+      const smid = String(song.songmid || "")
+      if (sid && smid) {
+        songidToMid.set(sid, smid)
+      }
+    }
 
-    if (newSongs.length === 0) {
-      return NextResponse.json({
-        success: true,
-        data: { imported: 0, message: "歌单没有新歌曲" },
+    // 补填已有歌曲的 qqMusicMid
+    const midPairs: [string, string][] = []
+    songidToMid.forEach((smid, sid) => {
+      midPairs.push([sid, smid])
+    })
+    for (let pi = 0; pi < midPairs.length; pi++) {
+      const songid = midPairs[pi][0]
+      const songmid = midPairs[pi][1]
+      await prisma.music.updateMany({
+        where: { qqMusicId: songid, qqMusicMid: null },
+        data: { qqMusicMid: songmid },
       })
     }
 
-    // 批量检测VIP状态（所有歌单歌曲，不仅是新歌）
+    // 批量检测VIP状态（所有歌单歌曲）
     const allSongMids = songs
       .map((s: any) => String(s.songmid || ""))
       .filter(Boolean)
     const vipMap = await batchCheckVip(allSongMids)
 
-    // 批量更新已有歌曲的VIP状态
+    // 批量更新所有歌曲的VIP状态
     const vipEntries: [string, boolean][] = []
     vipMap.forEach((canPlayFull, songmid) => {
       vipEntries.push([songmid, canPlayFull])
@@ -160,6 +173,18 @@ export async function POST(request: NextRequest) {
       await prisma.music.updateMany({
         where: { qqMusicMid: songmid },
         data: { canPlayFull },
+      })
+    }
+
+    // 过滤出新歌曲
+    const newSongs = songs.filter(
+      (s: any) => !existingIds.has(String(s.songid))
+    )
+
+    if (newSongs.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: { imported: 0, message: "歌单没有新歌曲，已同步VIP状态" },
       })
     }
 
