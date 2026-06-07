@@ -165,21 +165,21 @@ function MusicContent() {
   const [checkingVip, setCheckingVip] = React.useState(false)
   const [vipProgress, setVipProgress] = React.useState("")
 
-  // 筛选状态
+  // 筛选状态（全部从 URL 读取，URL 是唯一数据源）
   const status = searchParams.get("status") || ""
   const search = searchParams.get("search") || ""
   const tag = searchParams.get("tag") || ""
   const rating = searchParams.get("rating") || ""
   const availability = (searchParams.get("availability") || "") as AvailabilityFilter
   const sort = searchParams.get("sort") || ""
+  const urlPage = parseInt(searchParams.get("page") || "1")
 
-  // 加载数据
+  // 加载数据（URL 参数变化时自动重新请求）
   React.useEffect(() => {
-    setPage(1)
-    fetchMusic({ status, search, tag, rating, availability, sort }, 1)
+    fetchMusic({ status, search, tag, rating, availability, sort }, urlPage)
     fetchTags("music")
     fetchPlaylists()
-  }, [fetchMusic, fetchTags, status, search, tag, rating, availability, sort])
+  }, [fetchMusic, fetchTags, status, search, tag, rating, availability, sort, urlPage])
 
   // 获取已导入歌单列表
   const fetchPlaylists = async () => {
@@ -255,8 +255,12 @@ function MusicContent() {
       const vipCount = results.length - freeCount
       toast.success(`VIP检测完成：${freeCount}首免费，${vipCount}首VIP`)
 
-      // 4. 刷新页面数据
-      fetchMusic({ status, search, tag, rating, availability, sort })
+      // 回到第1页并刷新（URL驱动）
+      if (urlPage !== 1) {
+        updateParam("page", "1")
+      } else {
+        fetchMusic({ status, search, tag, rating, availability, sort }, 1)
+      }
     } catch {
       toast.error("VIP检测失败，请检查网络")
     } finally {
@@ -283,8 +287,14 @@ function MusicContent() {
 
       if (data.success && data.data) {
         toast.success(data.data.message)
-        fetchMusic({ status, search, tag, rating, availability, sort })
         fetchPlaylists()
+
+        // 回到第1页并刷新（URL驱动，保持分页一致）
+        if (urlPage !== 1) {
+          updateParam("page", "1")
+        } else {
+          fetchMusic({ status, search, tag, rating, availability, sort }, 1)
+        }
 
         // 自动触发浏览器端 VIP 检测（Vercel 服务端拿不到 pay 字段）
         if (data.data.totalSongs > 0 && !data.data.payAvailable) {
@@ -309,7 +319,7 @@ function MusicContent() {
       )
       if (data.success && data.data) {
         toast.success(`已删除 ${data.data.deleted} 首歌曲`)
-        fetchMusic({ status, search, tag, rating, availability, sort })
+        fetchMusic({ status, search, tag, rating, availability, sort }, urlPage)
         fetchPlaylists()
       } else {
         toast.error(data.error || "删除失败")
@@ -337,11 +347,11 @@ function MusicContent() {
     router.push("/music")
   }
 
-  // 快速切换状态
+  // 快速切换状态（保持当前页码）
   const handleStatusChange = async (item: Music, newStatus: string) => {
     const result = await updateMusic(item.id, { status: newStatus as any })
     if (result) {
-      fetchMusic({ status, search, tag, rating, availability, sort })
+      fetchMusic({ status, search, tag, rating, availability, sort }, urlPage)
     }
   }
 
@@ -350,7 +360,7 @@ function MusicContent() {
     const success = await deleteMusic(deletingMusic.id)
     if (success) {
       toast.success("音乐已删除")
-      fetchMusic({ status, search, tag, rating, availability, sort })
+      fetchMusic({ status, search, tag, rating, availability, sort }, urlPage)
       fetchPlaylists()
     } else {
       toast.error("删除失败")
@@ -477,12 +487,10 @@ function MusicContent() {
         />
 
         <Pagination
-          page={page}
+          page={urlPage}
           pageSize={pageSize}
           total={total}
-          onChange={(p) =>
-            fetchMusic({ status, search, tag, rating, availability, sort }, p)
-          }
+          onChange={(p) => updateParam("page", String(p))}
         />
 
         {/* 删除音乐确认 */}
