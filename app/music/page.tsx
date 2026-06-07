@@ -481,7 +481,7 @@ function MusicContent() {
           pageSize={pageSize}
           total={total}
           onChange={(p) =>
-            fetchMusic({ status, search, tag, rating, sort }, p)
+            fetchMusic({ status, search, tag, rating, availability, sort }, p)
           }
         />
 
