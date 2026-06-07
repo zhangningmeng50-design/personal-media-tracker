@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "app/api/music/stream/route.ts": {
+      "regions": ["hkg1"]
+    },
+    "app/api/music/play/route.ts": {
+      "regions": ["hkg1"]
+    },
+    "app/api/music/sync-availability/route.ts": {
+      "regions": ["hkg1"]
+    },
+    "app/api/import/qqmusic/refresh/route.ts": {
+      "regions": ["hkg1"]
+    }
+  }
+}
