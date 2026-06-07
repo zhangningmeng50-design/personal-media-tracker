@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import axios from "axios"
-import type { PlayerTrack, StreamData, ApiResponse } from "@/lib/types"
+import type { PlayerTrack } from "@/lib/types"
 
 interface AudioPlayerState {
   currentTrack: PlayerTrack | null
@@ -109,43 +108,51 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
     if (!state.currentTrack || !audioRef.current) return
 
     const loadStream = async () => {
+      const track = state.currentTrack!
       setState((prev) => ({ ...prev, isLoading: true, error: null, streamType: null }))
-      try {
-        // 先获取流类型信息（用于展示"试听"标签）
-        const streamPromise = axios.get<ApiResponse<StreamData>>(
-          `/api/music/stream?id=${state.currentTrack!.musicId}`
-        )
 
-        // 同时设置音频源为代理端点（确保HTTPS，无混内容问题）
-        const audio = audioRef.current!
-        audio.src = `/api/music/play?id=${state.currentTrack!.musicId}`
-        audio.load()
+      const audio = audioRef.current!
+      let streamUrl: string | null = null
+      let streamType: "full" | "preview" = "full"
 
-        const { data } = await streamPromise
-        if (data.success && data.data) {
-          audio.play().catch(() => {
-            // 浏览器可能阻止自动播放
-          })
-          setState((prev) => ({
-            ...prev,
-            isLoading: false,
-            streamType: data.data!.type,
-          }))
-        } else {
-          // 流信息获取失败，但代理端点可能仍然可用
-          audio.play().catch(() => {})
-          setState((prev) => ({
-            ...prev,
-            isLoading: false,
-            error: data.error || null,
-          }))
+      // 策略1：通过 Edge Function 从边缘节点调用QQ音乐API（绕过地域封锁）
+      if (track.qqMusicMid) {
+        try {
+          const res = await fetch(
+            `/api/qqmusic/stream-url?songmid=${encodeURIComponent(track.qqMusicMid)}`
+          )
+          const json = await res.json()
+          if (json.success && json.data?.url) {
+            streamUrl = json.data.url
+            streamType = json.data.type
+          }
+        } catch {
+          // Edge Function 失败，继续尝试其他方式
         }
-      } catch {
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: "获取播放链接失败",
-        }))
+      }
+
+      // 策略2：Edge Function 失败时，使用服务端代理端点
+      if (!streamUrl) {
+        streamUrl = `/api/music/play?id=${track.musicId}`
+      }
+
+      audio.src = streamUrl
+      audio.load()
+
+      // 播放音频
+      audio.play().catch(() => {
+        // 浏览器可能阻止自动播放（用户需要手动点击播放）
+      })
+
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        streamType,
+      }))
+
+      // 后台更新 canPlayFull 到数据库（非阻塞）
+      if (track.qqMusicMid) {
+        fetch(`/api/music/stream?id=${track.musicId}`).catch(() => {})
       }
     }
 
