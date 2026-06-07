@@ -3,7 +3,7 @@
 import * as React from "react"
 import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Download, RefreshCw, Loader2, Trash2, ShieldCheck } from "lucide-react"
+import { Download, RefreshCw, Loader2, Trash2 } from "lucide-react"
 import toast from "react-hot-toast"
 import axios from "axios"
 import { MainLayout } from "@/components/layout/MainLayout"
@@ -20,78 +20,6 @@ import { AVAILABILITY_OPTIONS } from "@/lib/constants"
 import type { Music, ImportedPlaylist, ApiResponse, AvailabilityFilter } from "@/lib/types"
 
 export const dynamic = "force-dynamic"
-
-/**
- * JSONP 批量检测VIP状态（浏览器直连QQ音乐，每批最多50首）
- */
-function batchCheckVipJsonp(songMids: string[]): Promise<Map<string, boolean>> {
-  return new Promise((resolve) => {
-    if (!songMids.length) {
-      resolve(new Map())
-      return
-    }
-
-    const callbackName =
-      "_qqmusic_vip_cb_" + Date.now() + "_" + Math.random().toString(36).slice(2)
-    const timeoutId = setTimeout(() => {
-      cleanup()
-      resolve(new Map())
-    }, 15000)
-
-    const cleanup = () => {
-      clearTimeout(timeoutId)
-      delete (window as any)[callbackName]
-      const el = document.getElementById(callbackName)
-      if (el) el.remove()
-    }
-
-    ;(window as any)[callbackName] = (data: any) => {
-      cleanup()
-      const result = new Map<string, boolean>()
-      try {
-        const infos = data?.req_0?.data?.midurlinfo
-        if (Array.isArray(infos)) {
-          for (const info of infos) {
-            if (info.songmid) {
-              if (info.purl) {
-                result.set(info.songmid, true) // 免费
-              } else if (info.opi30surl) {
-                result.set(info.songmid, false) // VIP可试听
-              }
-            }
-          }
-        }
-      } catch {
-        // ignore parse errors
-      }
-      resolve(result)
-    }
-
-    const params = {
-      req_0: {
-        module: "vkey.GetVkeyServer",
-        method: "CgiGetVkey",
-        param: {
-          guid: "0",
-          songmid: songMids,
-          songtype: [0],
-          uin: "0",
-          loginflag: 1,
-          platform: "20",
-        },
-      },
-    }
-    const dataParam = encodeURIComponent(JSON.stringify(params))
-    const script = document.createElement("script")
-    script.id = callbackName
-    script.src = `https://u.y.qq.com/cgi-bin/musicu.fcg?callback=${callbackName}&format=jsonp&data=${dataParam}`
-    script.onerror = () => {
-      cleanup()
-      resolve(new Map())
-    }
-    document.head.appendChild(script)
-  })
-}
 
 function MusicContent() {
   const router = useRouter()
@@ -114,7 +42,6 @@ function MusicContent() {
   const [playlists, setPlaylists] = React.useState<ImportedPlaylist[]>([])
   const [refreshing, setRefreshing] = React.useState<string | null>(null)
   const [deletingPlaylist, setDeletingPlaylist] = React.useState<string | null>(null)
-  const [checkingVip, setCheckingVip] = React.useState(false)
 
   // 筛选状态
   const status = searchParams.get("status") || ""
@@ -182,69 +109,6 @@ function MusicContent() {
     }
   }
 
-  // 客户端批量检测VIP状态（浏览器JSONP直连QQ音乐）
-  const handleCheckVip = async () => {
-    setCheckingVip(true)
-    try {
-      // 获取所有需要检测的歌曲（canPlayFull = null 且有 qqMusicMid）
-      const { data: listData } = await axios.get<ApiResponse<Music[]>>(
-        "/api/music?pageSize=1000"
-      )
-      const allSongs = listData.data || []
-      const needCheck = allSongs.filter(
-        (s) => s.qqMusicMid && s.canPlayFull === null
-      )
-      if (!needCheck.length) {
-        toast.success("所有歌曲已检测完毕")
-        return
-      }
-
-      toast.loading(`正在检测 ${needCheck.length} 首...`, { id: "vip-check" })
-
-      // 按50首一批分组
-      const BATCH_SIZE = 50
-      let checked = 0
-      let freeCount = 0
-      let vipCount = 0
-
-      for (let i = 0; i < needCheck.length; i += BATCH_SIZE) {
-        const batch = needCheck.slice(i, i + BATCH_SIZE)
-        const songMids = batch.map((s) => s.qqMusicMid!)
-
-        const vipMap = await batchCheckVipJsonp(songMids)
-        checked += batch.length
-
-        // 逐首更新数据库
-        for (const song of batch) {
-          const canPlayFull = vipMap.get(song.qqMusicMid!)
-          if (canPlayFull !== undefined) {
-            try {
-              await axios.post("/api/music/update-availability", {
-                musicId: song.id,
-                canPlayFull,
-              })
-              if (canPlayFull) freeCount++
-              else vipCount++
-            } catch {
-              // skip individual failures
-            }
-          }
-        }
-
-        toast.loading(`已检测 ${Math.min(checked, needCheck.length)}/${needCheck.length} 首...`, { id: "vip-check" })
-      }
-
-      toast.success(
-        `检测完成：${freeCount} 首免费，${vipCount} 首VIP`,
-        { id: "vip-check" }
-      )
-      fetchMusic({ status, search, tag, rating, availability, sort })
-    } catch {
-      toast.error("VIP检测失败", { id: "vip-check" })
-    } finally {
-      setCheckingVip(false)
-    }
-  }
   const handleDeletePlaylist = async () => {
     if (!deletingPlaylist) return
     try {
@@ -394,21 +258,6 @@ function MusicContent() {
               {opt.label}
             </button>
           ))}
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1 ml-1"
-            onClick={handleCheckVip}
-            disabled={checkingVip}
-            title="通过浏览器直连QQ音乐批量检测歌曲VIP/免费状态"
-          >
-            {checkingVip ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ShieldCheck className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden sm:inline text-xs">检测VIP</span>
-          </Button>
         </div>
 
         {/* 音乐网格 */}
