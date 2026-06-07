@@ -21,6 +21,65 @@ import type { Music, ImportedPlaylist, ApiResponse, AvailabilityFilter } from "@
 
 export const dynamic = "force-dynamic"
 
+/**
+ * JSONP 从浏览器调用歌单API获取 pay 字段判断VIP状态
+ * 浏览器在中国能拿到完整数据（Vercel海外IP拿不到pay字段）
+ */
+function fetchPlaylistPayFromBrowser(playlistId: string): Promise<Map<string, boolean>> {
+  return new Promise((resolve) => {
+    const callbackName =
+      "_qq_pl_cb_" + Date.now() + "_" + Math.random().toString(36).slice(2)
+    let settled = false
+
+    const timeoutId = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(new Map())
+    }, 15000)
+
+    const cleanup = () => {
+      clearTimeout(timeoutId)
+      delete (window as any)[callbackName]
+      const el = document.getElementById(callbackName)
+      if (el) el.remove()
+    }
+
+    ;(window as any)[callbackName] = (data: any) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      const result = new Map<string, boolean>()
+      try {
+        const songs = data?.cdlist?.[0]?.songlist || []
+        for (const song of songs) {
+          const sid = String(song.songid || "")
+          if (!sid) continue
+          const pay = song.pay
+          if (pay && (pay.payplay !== undefined)) {
+            // payplay=1 表示VIP才能播放
+            result.set(sid, pay.payplay !== 1)
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+      resolve(result)
+    }
+
+    const script = document.createElement("script")
+    script.id = callbackName
+    script.src = `https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&disstid=${encodeURIComponent(playlistId)}&callback=${callbackName}`
+    script.onerror = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(new Map())
+    }
+    document.head.appendChild(script)
+  })
+}
+
 function MusicContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -94,12 +153,69 @@ function MusicContent() {
   const handleRefresh = async (playlistId: string) => {
     setRefreshing(playlistId)
     try {
-      const { data } = await axios.post<ApiResponse<{ imported: number; message: string }>>(
-        "/api/import/qqmusic/refresh",
-        { playlistId }
-      )
+      const { data } = await axios.post<
+        ApiResponse<{
+          imported: number
+          updated: number
+          totalSongs: number
+          payAvailable: boolean
+          payVipCount: number
+          payFreeCount: number
+          message: string
+        }>
+      >("/api/import/qqmusic/refresh", { playlistId })
+
       if (data.success && data.data) {
-        toast.success(data.data.message)
+        const result = data.data
+
+        // 服务端拿不到 pay 数据时，浏览器端JSONP获取（中国IP能看到）
+        if (!result.payAvailable && result.totalSongs > 0) {
+          toast.loading("正在从浏览器检测VIP状态...", { id: "vip-check" })
+
+          const payMap = await fetchPlaylistPayFromBrowser(playlistId)
+
+          if (payMap.size > 0) {
+            // 获取所有歌曲，匹配 qqMusicId → db id
+            const { data: listData } = await axios.get<ApiResponse<Music[]>>(
+              "/api/music?pageSize=2000"
+            )
+            const allSongs = listData.data || []
+
+            const updates: { id: number; canPlayFull: boolean }[] = []
+            for (const song of allSongs) {
+              if (song.qqMusicId && payMap.has(song.qqMusicId)) {
+                updates.push({
+                  id: song.id,
+                  canPlayFull: payMap.get(song.qqMusicId)!,
+                })
+              }
+            }
+
+            if (updates.length > 0) {
+              await axios.post("/api/music/update-availability", { updates })
+              const freeCount = updates.filter((u) => u.canPlayFull).length
+              const vipCount = updates.filter((u) => !u.canPlayFull).length
+              toast.success(
+                `${result.message}，检测完成：${freeCount}首免费 ${vipCount}首VIP`,
+                { id: "vip-check" }
+              )
+            } else {
+              toast.success(result.message, { id: "vip-check" })
+            }
+          } else {
+            toast.success(result.message + "（VIP状态需点击播放时检测）", {
+              id: "vip-check",
+            })
+          }
+        } else if (result.payAvailable) {
+          // 服务端拿到了 pay 数据，直接显示结果
+          toast.success(
+            `${result.message}，${result.payFreeCount}首免费 ${result.payVipCount}首VIP`
+          )
+        } else {
+          toast.success(result.message)
+        }
+
         fetchMusic({ status, search, tag, rating, availability, sort })
         fetchPlaylists()
       } else {

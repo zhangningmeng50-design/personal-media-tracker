@@ -8,7 +8,7 @@ const USER_AGENT =
  * POST /api/import/qqmusic/refresh
  * body: { playlistId: string }
  * 刷新歌单：获取最新歌曲列表，自动导入数据库中不存在的歌曲
- * 同时从歌单API的 pay 字段获取VIP/免费状态（比 vkey API 更可靠）
+ * pay/VIP 检测由浏览器端完成（Vercel IP 拿不到完整 pay 数据）
  */
 export async function POST(request: NextRequest) {
   try {
@@ -74,10 +74,13 @@ export async function POST(request: NextRequest) {
     const cd = data.cdlist[0]
     const songs = cd.songlist || []
 
-    // 构建 songid → { songmid, canPlayFull } 映射
-    // canPlayFull 从歌单API的 pay 字段获取（比 vkey API purl 检测准确得多）
-    const songidToInfo = new Map<string, { songmid: string; canPlayFull: boolean | null }>()
+    // 构建 songid → songmid 映射
+    const songidToMid = new Map<string, string>()
     const songIds: string[] = []
+
+    // 统计 pay 字段（诊断用，Vercel IP 可能拿不到）
+    let payAvailable = false
+    let payVipCount = 0
 
     for (const song of songs) {
       const sid = String(song.songid || "")
@@ -85,17 +88,13 @@ export async function POST(request: NextRequest) {
       if (!sid || !smid) continue
 
       songIds.push(sid)
+      songidToMid.set(sid, smid)
 
-      // 从 pay 字段判断是否需要VIP
-      const pay = song.pay
-      let canPlayFull: boolean | null = null
-      if (pay) {
-        // payplay: 1=VIP才能播放, paymonth: 1=付费包
-        const needsVip = pay.payplay === 1 || pay.paymonth === 1
-        canPlayFull = !needsVip
+      // 检测 pay 字段是否可用
+      if (song.pay && (song.pay.payplay === 1 || song.pay.payplay === 0)) {
+        payAvailable = true
+        if (song.pay.payplay === 1) payVipCount++
       }
-
-      songidToInfo.set(sid, { songmid: smid, canPlayFull })
     }
 
     // 查询数据库中已存在的歌曲
@@ -105,25 +104,20 @@ export async function POST(request: NextRequest) {
     })
     const existingIds = new Set(existing.map((m) => m.qqMusicId))
 
-    // ====== 分批并行补填已有歌曲的 qqMusicMid 和 canPlayFull ======
-    const entries = Array.from(songidToInfo.entries())
-    const CHUNK = 20 // 每批20首并行，避免耗尽DB连接池
+    // ====== 分批并行补填已有歌曲的 qqMusicMid ======
+    const entries = Array.from(songidToMid.entries())
+    const CHUNK = 20
 
     let updatedCount = 0
     for (let i = 0; i < entries.length; i += CHUNK) {
       const chunk = entries.slice(i, i + CHUNK)
       const results = await Promise.all(
-        chunk.map(([songid, info]) => {
-          const updateData: Record<string, unknown> = { qqMusicMid: info.songmid }
-          // 只有从 pay 字段获取到明确信息时才更新 canPlayFull
-          if (info.canPlayFull !== null) {
-            updateData.canPlayFull = info.canPlayFull
-          }
-          return prisma.music.updateMany({
-            where: { qqMusicId: songid },
-            data: updateData,
+        chunk.map(([songid, songmid]) =>
+          prisma.music.updateMany({
+            where: { qqMusicId: songid, qqMusicMid: null },
+            data: { qqMusicMid: songmid },
           })
-        })
+        )
       )
       updatedCount += results.reduce((sum, r) => sum + r.count, 0)
     }
@@ -133,45 +127,38 @@ export async function POST(request: NextRequest) {
       (s: any) => !existingIds.has(String(s.songid))
     )
 
-    if (newSongs.length === 0) {
-      return NextResponse.json({
-        success: true,
-        data: {
-          imported: 0,
-          updated: updatedCount,
-          message: updatedCount > 0
-            ? `歌单没有新歌曲，更新了 ${updatedCount} 首已有歌曲的VIP状态`
-            : "歌单没有新歌曲",
-        },
-      })
-    }
+    let imported = 0
+    if (newSongs.length > 0) {
+      const coverBase = "https://y.qq.com/music/photo_new/T002R300x300M000"
 
-    const coverBase = "https://y.qq.com/music/photo_new/T002R300x300M000"
-
-    // 使用 createMany 一次性批量导入（比逐个 create 快10倍+）
-    const createData = newSongs.map((song: any) => {
-      const info = songidToInfo.get(String(song.songid))
-      return {
+      const createData = newSongs.map((song: any) => ({
         title: song.songname || "未知歌曲",
         artist: (song.singer || []).map((s: any) => s.name).join(" / "),
         album: song.albumname || null,
         coverUrl: song.albummid ? `${coverBase}${song.albummid}.jpg` : null,
         qqMusicId: String(song.songid),
-        qqMusicMid: info?.songmid || String(song.songmid || ""),
+        qqMusicMid: String(song.songmid || ""),
         playlistId,
         duration: song.interval || null,
-        canPlayFull: info?.canPlayFull ?? null,
-      }
-    })
+      }))
 
-    const result = await prisma.music.createMany({ data: createData })
+      const result = await prisma.music.createMany({ data: createData })
+      imported = result.count
+    }
 
     return NextResponse.json({
       success: true,
       data: {
-        imported: result.count,
+        imported,
         updated: updatedCount,
-        message: `成功导入 ${result.count} 首新歌，更新 ${updatedCount} 首已有歌曲`,
+        totalSongs: songs.length,
+        // 诊断信息：服务端是否拿到了 pay 数据
+        payAvailable,
+        payVipCount,
+        payFreeCount: payAvailable ? songs.length - payVipCount : 0,
+        message: imported > 0
+          ? `成功导入 ${imported} 首新歌`
+          : "歌单没有新歌曲",
       },
     })
   } catch (error) {
